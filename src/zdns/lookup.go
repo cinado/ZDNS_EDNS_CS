@@ -904,7 +904,7 @@ func (r *Resolver) cachedLookup(ctx context.Context, q Question, nameServer *Nam
 		cacheNameServer = nil
 	}
 	// First, we check the cache
-	cachedResult, ok := r.cache.GetCachedResults(q, cacheNameServer, depth+1)
+	cachedResult, ok := r.cache.GetCachedResultsForClientSubnet(q, cacheNameServer, r.clientSubnetKey, depth+1)
 	if ok {
 		isCached = true
 		// set protocol on the result
@@ -1013,7 +1013,7 @@ func (r *Resolver) cachedLookup(ctx context.Context, q Question, nameServer *Nam
 				r.verboseLog(depth+2, "Cache auth upsert for ", authName)
 				r.cache.SafeAddCachedAuthority(result, cacheNameServer, depth+2, layer)
 			} else {
-				r.cache.SafeAddCachedAnswer(q, result, cacheNameServer, layer, depth+2, cacheNonAuthoritative)
+				r.cache.SafeAddCachedAnswerForClientSubnet(q, result, cacheNameServer, r.clientSubnetKey, layer, depth+2, cacheNonAuthoritative)
 			}
 		} else {
 			r.verboseLog(depth+2, "skipping cache for domain", q.Name, "and type", dns.TypeToString[q.Type], "due to DNSSEC bogus status")

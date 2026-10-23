@@ -73,6 +73,7 @@ type QueryOptions struct {
 	CheckingDisabled   bool   `long:"checking-disabled" description:"Sends DNS packets with the CD bit set"`
 	ClassString        string `long:"class" default:"INET" description:"DNS class to query. Options: INET, CSNET, CHAOS, HESIOD, NONE, ANY."`
 	ClientSubnetString string `long:"client-subnet" description:"Client subnet in CIDR format for EDNS0."`
+	ClientSubnetInput  bool   `long:"client-subnet-input" description:"Read a per-name EDNS0 client subnet (CIDR) from the second column of each input line: 'name,subnet[,nameserver[,triggers...]]'. An empty subnet column falls back to --client-subnet, if given."`
 	Dnssec             bool   `long:"dnssec" description:"Requests DNSSEC records by setting the DNSSEC OK (DO) bit"`
 	ValidateDNSSEC     bool   `long:"validate-dnssec" description:"Validate DNSSEC records, only applicable with --iterative"`
 	UseNSID            bool   `long:"nsid" description:"Request NSID."`

@@ -148,6 +148,9 @@ func populateCLIConfig(gc *CLIConf) *CLIConf {
 	if gc.NameServerMode && gc.ZoneFileFormat {
 		log.Fatal("Zone file mode is incompatible with name server mode")
 	}
+	if gc.ClientSubnetInput && (gc.NameServerMode || gc.AlexaFormat || gc.MetadataFormat || gc.ZoneFileFormat) {
+		log.Fatal("--client-subnet-input is incompatible with name server mode, Alexa format, metadata format and zone file mode")
+	}
 	if gc.ZoneFileIncludeTargets && !gc.ZoneFileFormat {
 		log.Fatal("--zone-file-include-targets can only be used with --zone-file")
 	}
@@ -742,7 +745,35 @@ func handleWorkerInput(ctx context.Context, gc *CLIConf, rc *zdns.ResolverConfig
 		nameServer = &nameServers[rand.Intn(len(nameServers))]
 	} else {
 		var inputTriggersSlice []string
-		rawName, nameServerString, inputTriggersSlice = parseNormalInputLine(line)
+		if gc.ClientSubnetInput {
+			var clientSubnetString string
+			rawName, clientSubnetString, nameServerString, inputTriggersSlice = parseClientSubnetInputLine(line)
+			clientSubnet := gc.ClientSubnet
+			if len(clientSubnetString) != 0 {
+				clientSubnet, err = parseClientSubnet(clientSubnetString)
+				if err != nil {
+					res.Name = rawName
+					res.Results = map[string]zdns.SingleModuleResult{}
+					for moduleName := range gc.ActiveModules {
+						res.Results[moduleName] = zdns.SingleModuleResult{
+							Status:    string(zdns.StatusIllegalInput),
+							Error:     err.Error(),
+							Timestamp: time.Now().Format(gc.TimeFormat),
+						}
+					}
+					writeWorkerResult(gc, res, outputChan)
+					metadata.Status[zdns.StatusIllegalInput]++
+					metadata.Names++
+					return
+				}
+			}
+			resolver.SetClientSubnet(clientSubnet)
+			if clientSubnet != nil {
+				res.ClientSubnet = fmt.Sprintf("%s/%d", clientSubnet.Address, clientSubnet.SourceNetmask)
+			}
+		} else {
+			rawName, nameServerString, inputTriggersSlice = parseNormalInputLine(line)
+		}
 		if len(nameServerString) != 0 {
 			nameServers, err = convertNameServerStringToNameServer(nameServerString, rc.IPVersionMode, rc.DNSOverTLS, rc.DNSOverHTTPS)
 			if err != nil {
@@ -805,24 +836,28 @@ func handleWorkerInput(ctx context.Context, gc *CLIConf, rc *zdns.ResolverConfig
 		metadata.Lookups++
 	}
 	if len(res.Results) > 0 {
-		v, _ := version.NewVersion("0.0.0")
-		o := &sheriff.Options{
-			Groups:          gc.OutputGroups,
-			ApiVersion:      v,
-			IncludeEmptyTag: true,
-		}
-		data, err := sheriff.Marshal(o, res)
-		if err != nil {
-			log.Fatalf("unable to marshal result to JSON: %v", err)
-		}
-		cleansedData := replaceIntSliceInterface(data)
-		jsonRes, err := json.Marshal(cleansedData)
-		if err != nil {
-			log.Fatalf("unable to marshal JSON result: %v", err)
-		}
-		outputChan <- string(jsonRes)
+		writeWorkerResult(gc, res, outputChan)
 	}
 	metadata.Names++
+}
+
+func writeWorkerResult(gc *CLIConf, res zdns.Result, outputChan chan<- string) {
+	v, _ := version.NewVersion("0.0.0")
+	o := &sheriff.Options{
+		Groups:          gc.OutputGroups,
+		ApiVersion:      v,
+		IncludeEmptyTag: true,
+	}
+	data, err := sheriff.Marshal(o, res)
+	if err != nil {
+		log.Fatalf("unable to marshal result to JSON: %v", err)
+	}
+	cleansedData := replaceIntSliceInterface(data)
+	jsonRes, err := json.Marshal(cleansedData)
+	if err != nil {
+		log.Fatalf("unable to marshal JSON result: %v", err)
+	}
+	outputChan <- string(jsonRes)
 }
 
 func parseAlexa(line string) (string, int) {
@@ -859,6 +894,15 @@ func parseNormalInputLine(line string) (name, nameserver string, triggers []stri
 	default:
 		return s[0], s[1], s[2:]
 	}
+}
+
+// parseClientSubnetInputLine parses a line of the form 'name,subnet[,nameserver[,triggers...]]'
+func parseClientSubnetInputLine(line string) (name, subnet, nameserver string, triggers []string) {
+	name, subnet, rest := parseNormalInputLine(line)
+	if len(rest) > 0 {
+		nameserver, triggers = rest[0], rest[1:]
+	}
+	return name, subnet, nameserver, triggers
 }
 
 func makeName(name, prefix, nameOverride string) (string, bool) {

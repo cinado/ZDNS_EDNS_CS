@@ -99,32 +99,45 @@ func populateNetworkingConfig(gc *CLIConf) error {
 
 func validateClientSubnetString(gc *CLIConf) error {
 	if gc.ClientSubnetString != "" {
-		parts := strings.Split(gc.ClientSubnetString, "/")
-		if len(parts) != 2 {
-			return fmt.Errorf("client subnet should be in CIDR format: %s", gc.ClientSubnetString)
-		}
-		ip := net.ParseIP(parts[0])
-		if ip == nil {
-			return fmt.Errorf("client subnet invalid: %s", gc.ClientSubnetString)
-		}
-		netmask, err := strconv.Atoi(parts[1])
+		subnet, err := parseClientSubnet(gc.ClientSubnetString)
 		if err != nil {
-			return fmt.Errorf("client subnet netmask invalid: %s", gc.ClientSubnetString)
+			return err
 		}
-		if netmask > 24 || netmask < 8 {
-			return fmt.Errorf("client subnet netmask must be in 8..24: %s", gc.ClientSubnetString)
-		}
-		gc.ClientSubnet = new(dns.EDNS0_SUBNET)
-		gc.ClientSubnet.Code = dns.EDNS0SUBNET
-		if ip.To4() == nil {
-			gc.ClientSubnet.Family = 2
-		} else {
-			gc.ClientSubnet.Family = 1
-		}
-		gc.ClientSubnet.SourceNetmask = uint8(netmask)
-		gc.ClientSubnet.Address = ip
+		gc.ClientSubnet = subnet
 	}
 	return nil
+}
+
+// parseClientSubnet parses a subnet in CIDR format (ex: 192.0.2.0/24 or 2001:db8::/48) into an EDNS0 Client Subnet option.
+// Host bits are zeroed as required by RFC 7871.
+func parseClientSubnet(subnetString string) (*dns.EDNS0_SUBNET, error) {
+	parts := strings.Split(subnetString, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("client subnet should be in CIDR format: %s", subnetString)
+	}
+	ip := net.ParseIP(parts[0])
+	if ip == nil {
+		return nil, fmt.Errorf("client subnet invalid: %s", subnetString)
+	}
+	netmask, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("client subnet netmask invalid: %s", subnetString)
+	}
+	subnet := &dns.EDNS0_SUBNET{Code: dns.EDNS0SUBNET}
+	bits := 8 * net.IPv6len
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+		bits = 8 * net.IPv4len
+		subnet.Family = 1
+	} else {
+		subnet.Family = 2
+	}
+	if netmask < 0 || netmask > bits {
+		return nil, fmt.Errorf("client subnet netmask must be in 0..%d: %s", bits, subnetString)
+	}
+	subnet.SourceNetmask = uint8(netmask)
+	subnet.Address = ip.Mask(net.CIDRMask(netmask, bits))
+	return subnet, nil
 }
 
 func parseNameServers(gc *CLIConf) error {

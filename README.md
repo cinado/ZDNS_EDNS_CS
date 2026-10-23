@@ -212,6 +212,20 @@ $ echo "google.com,1.1.1.1\nfacebook.com,8.8.8.8" | zdns A
 {"name":"facebook.com","results":{"A":{"data":{"additionals":[...],"answers":[...],"protocol":"udp","resolver":"8.8.8.8:53"},"duration":0.061365459,"status":"NOERROR","timestamp":"2024-09-13T09:51:34-04:00"}}}
 ````
 
+### Client Subnets per-domain
+`--client-subnet` sends the same EDNS0 Client Subnet (ECS, RFC 7871) with every query. To send a different client subnet
+for each input line, use `--client-subnet-input`. The second column of each line is then read as the client subnet in CIDR
+format, optionally followed by a name server (and triggers): `name,subnet[,nameserver[,triggers...]]`. An empty subnet
+column falls back to `--client-subnet`, if given. Both IPv4 and IPv6 subnets are supported; host bits are zeroed.
+
+```shell
+$ printf "www.google.com,8.8.8.0/24,216.239.32.10\nwww.google.com,193.0.0.0/24,216.239.32.10\n" | zdns A --client-subnet-input
+```
+
+The requested subnet is included in each output record as `client_subnet`, and the ECS option returned by the server
+(including its `source_scope`) appears in the EDNS0 additional record as `csubnet`. Cached answers are only reused for the
+same client subnet, but a cached answer does not include the returned ECS option.
+
 ### Zone Files
 
 Zone files (from ICANN CZDS or similar) can be used as an input source for ZDNS with the `--zone-file` flag. This enables parsing zone files from either stdin (default) or a file with the `--input-file` flag.

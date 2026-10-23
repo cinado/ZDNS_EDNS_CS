@@ -28,9 +28,10 @@ import (
 type IsCached bool
 
 type CachedKey struct {
-	Question    Question
-	NameServer  string // optional
-	IsAuthority bool
+	Question     Question
+	NameServer   string // optional
+	IsAuthority  bool
+	ClientSubnet string // optional, EDNS0 client subnet the answer was obtained for. Not used for authorities.
 }
 
 type CachedResult struct {
@@ -63,8 +64,8 @@ func (s *Cache) VerboseLog(depth int, args ...any) {
 	}
 }
 
-func (s *Cache) addCachedAnswer(q Question, nameServer string, isAuthority bool, result *CachedResult, depth int) {
-	cacheKey := CachedKey{q, nameServer, isAuthority}
+func (s *Cache) addCachedAnswer(q Question, nameServer string, isAuthority bool, clientSubnet string, result *CachedResult, depth int) {
+	cacheKey := CachedKey{q, nameServer, isAuthority, clientSubnet}
 	s.IterativeCache.Lock(cacheKey)
 	// this record will replace any existing record with the exact same cache key
 	didExist, didEject := s.IterativeCache.Add(cacheKey, *result)
@@ -85,7 +86,7 @@ func (s *Cache) addCachedAnswer(q Question, nameServer string, isAuthority bool,
 }
 
 func (s *Cache) GetCachedAuthority(authorityName string, ns *NameServer, depth int) (retv *SingleQueryResult, isFound bool) {
-	retv, isFound, partiallyExpired := s.getCachedResult(Question{Name: authorityName, Type: dns.TypeNS, Class: dns.ClassINET}, ns, true, depth)
+	retv, isFound, partiallyExpired := s.getCachedResult(Question{Name: authorityName, Type: dns.TypeNS, Class: dns.ClassINET}, ns, true, "", depth)
 	if partiallyExpired {
 		// if the authority is partially expired, we'll re-query it and update the cache. This prevents a cache with only part of a non-expired answer
 		return nil, false
@@ -94,7 +95,12 @@ func (s *Cache) GetCachedAuthority(authorityName string, ns *NameServer, depth i
 }
 
 func (s *Cache) GetCachedResults(q Question, ns *NameServer, depth int) (retv *SingleQueryResult, isFound bool) {
-	retv, isFound, partiallyExpired := s.getCachedResult(q, ns, false, depth)
+	return s.GetCachedResultsForClientSubnet(q, ns, "", depth)
+}
+
+// GetCachedResultsForClientSubnet is like GetCachedResults, but only returns answers cached for the given client subnet key.
+func (s *Cache) GetCachedResultsForClientSubnet(q Question, ns *NameServer, clientSubnet string, depth int) (retv *SingleQueryResult, isFound bool) {
+	retv, isFound, partiallyExpired := s.getCachedResult(q, ns, false, clientSubnet, depth)
 	if partiallyExpired {
 		// if the authority is partially expired, we'll re-query it and update the cache. This prevents a cache with only part of a non-expired answer
 		return nil, false
@@ -102,11 +108,11 @@ func (s *Cache) GetCachedResults(q Question, ns *NameServer, depth int) (retv *S
 	return retv, isFound
 }
 
-func (s *Cache) getCachedResult(q Question, ns *NameServer, isAuthority bool, depth int) (retv *SingleQueryResult, isFound, partiallyExpired bool) {
+func (s *Cache) getCachedResult(q Question, ns *NameServer, isAuthority bool, clientSubnet string, depth int) (retv *SingleQueryResult, isFound, partiallyExpired bool) {
 	retv = &SingleQueryResult{}
 	isFound = false
 	partiallyExpired = false
-	cacheKey := CachedKey{q, "", isAuthority}
+	cacheKey := CachedKey{q, "", isAuthority, clientSubnet}
 	if ns != nil {
 		cacheKey.NameServer = ns.String()
 		retv.Resolver = ns.String()
@@ -243,6 +249,11 @@ func (s *Cache) buildCachedResult(res *SingleQueryResult, depth int, layer strin
 }
 
 func (s *Cache) SafeAddCachedAnswer(q Question, res *SingleQueryResult, ns *NameServer, layer string, depth int, cacheNonAuthoritative bool) {
+	s.SafeAddCachedAnswerForClientSubnet(q, res, ns, "", layer, depth, cacheNonAuthoritative)
+}
+
+// SafeAddCachedAnswerForClientSubnet is like SafeAddCachedAnswer, but caches the answer only for the given client subnet key.
+func (s *Cache) SafeAddCachedAnswerForClientSubnet(q Question, res *SingleQueryResult, ns *NameServer, clientSubnet string, layer string, depth int, cacheNonAuthoritative bool) {
 	if res.DNSSECResult != nil && res.DNSSECResult.Status == DNSSECBogus {
 		panic("attempting to cache a bogus result")
 	}
@@ -283,7 +294,7 @@ func (s *Cache) SafeAddCachedAnswer(q Question, res *SingleQueryResult, ns *Name
 		s.VerboseLog(depth+1, "SafeAddCachedAnswer: no cacheable records found, aborting")
 		return
 	}
-	s.addCachedAnswer(q, nsString, false, cachedRes, depth)
+	s.addCachedAnswer(q, nsString, false, clientSubnet, cachedRes, depth)
 }
 
 // SafeAddCachedAuthority Writes an authority to the cache. This is a special case where the result should only have
@@ -357,7 +368,7 @@ func (s *Cache) SafeAddCachedAuthority(res *SingleQueryResult, ns *NameServer, d
 			}
 			dsRes.Flags.Authoritative = true
 			dsCachedRes := s.buildCachedResult(dsRes, depth, layer)
-			s.addCachedAnswer(Question{Name: delegateName, Type: dns.TypeDS, Class: dns.ClassINET}, nsString, false, dsCachedRes, depth)
+			s.addCachedAnswer(Question{Name: delegateName, Type: dns.TypeDS, Class: dns.ClassINET}, nsString, false, "", dsCachedRes, depth)
 		}
 	}
 
@@ -368,5 +379,5 @@ func (s *Cache) SafeAddCachedAuthority(res *SingleQueryResult, ns *NameServer, d
 		s.VerboseLog(depth+1, "SafeAddCachedAnswer: no cacheable records found, aborting")
 		return
 	}
-	s.addCachedAnswer(Question{Name: authName, Type: dns.TypeNS, Class: dns.ClassINET}, nsString, true, cachedRes, depth)
+	s.addCachedAnswer(Question{Name: authName, Type: dns.TypeNS, Class: dns.ClassINET}, nsString, true, "", cachedRes, depth)
 }

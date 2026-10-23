@@ -353,7 +353,9 @@ type Resolver struct {
 	dnsOverTLSEnabled    bool           // whether to use DNS over TLS for External Lookups, n/a to Iterative Lookups
 	rootCAs              *x509.CertPool // Root CAs for DoT/DoH Server Verification
 	verifyServerCert     bool           // Verify server certificates for DoT/DoH
-	ednsOptions          []dns.EDNS0
+	ednsOptions          []dns.EDNS0    // options sent with every query, including the current client subnet (if any)
+	baseEdnsOptions      []dns.EDNS0    // ednsOptions without any client subnet option
+	clientSubnetKey      string         // identifies the current client subnet in cache keys, empty if no ECS is sent
 	checkingDisabledBit  bool
 	authenticatedDataBit bool
 	isClosed             bool // true if the resolver has been closed, lookup will panic if called after Close
@@ -406,11 +408,19 @@ func InitResolver(config *ResolverConfig) (*Resolver, error) {
 		verifyServerCert:     config.VerifyServerCert,
 		dnsSecEnabled:        config.DNSSecEnabled,
 		shouldValidateDNSSEC: config.ShouldValidateDNSSEC,
-		ednsOptions:          config.EdnsOptions,
 		checkingDisabledBit:  config.CheckingDisabledBit,
 		authenticatedDataBit: config.AuthenticatedDataBit,
 	}
 	log.SetLevel(r.logLevel)
+	var configSubnet *dns.EDNS0_SUBNET
+	for _, opt := range config.EdnsOptions {
+		if subnet, ok := opt.(*dns.EDNS0_SUBNET); ok {
+			configSubnet = subnet
+		} else {
+			r.baseEdnsOptions = append(r.baseEdnsOptions, opt)
+		}
+	}
+	r.SetClientSubnet(configSubnet)
 	// Deep copy local address so Resolver is independent of the config
 	r.userPreferredIPv4LocalAddrs = DeepCopyIPs(config.LocalAddrsV4)
 	r.userPreferredIPv6LocalAddrs = DeepCopyIPs(config.LocalAddrsV6)
@@ -456,6 +466,21 @@ func InitResolver(config *ResolverConfig) (*Resolver, error) {
 		}
 	}
 	return r, nil
+}
+
+// SetClientSubnet sets the EDNS0 Client Subnet (ECS) option sent with all subsequent queries of this resolver, replacing
+// any client subnet given in ResolverConfig.EdnsOptions. Pass nil to send no ECS option.
+// Since a Resolver performs only one lookup at a time, this can be called between lookups to resolve each name on behalf
+// of a different client subnet. Cached answers are keyed by client subnet, so answers for one subnet are never returned
+// for another.
+func (r *Resolver) SetClientSubnet(subnet *dns.EDNS0_SUBNET) {
+	r.ednsOptions = make([]dns.EDNS0, len(r.baseEdnsOptions), len(r.baseEdnsOptions)+1)
+	copy(r.ednsOptions, r.baseEdnsOptions)
+	r.clientSubnetKey = ""
+	if subnet != nil {
+		r.ednsOptions = append(r.ednsOptions, subnet)
+		r.clientSubnetKey = fmt.Sprintf("%d/%s/%d", subnet.Family, subnet.Address.String(), subnet.SourceNetmask)
+	}
 }
 
 // getConnectionInfo uses the name server to determine if a loopback vs. non-loopback or IPv4/v6 connection should be used
