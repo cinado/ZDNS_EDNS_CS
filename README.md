@@ -226,6 +226,32 @@ The requested subnet is included in each output record as `client_subnet`, and t
 (including its `source_scope`) appears in the EDNS0 additional record as `csubnet`. Cached answers are only reused for the
 same client subnet, but a cached answer does not include the returned ECS option.
 
+To generate an input list interactively, run the Python 3 script (no extra dependencies):
+
+```shell
+python3 scripts/generate_client_subnets.py
+```
+
+It asks for a domain, an IPv4 subnet prefix such as `/24` or `24`, a sampling interval (default: `1`, all
+prefixes), and an output filename (default: `queries.csv`). It covers the entire IPv4 address space.
+Sampling starts with the first prefix and selects every Nth prefix, skipping the intervening prefixes directly.
+For example, `example.com`, prefix `/24`, and sampling interval `4` produce a file starting with:
+
+```text
+example.com,0.0.0.0/24
+example.com,0.0.4.0/24
+example.com,0.0.8.0/24
+example.com,0.0.12.0/24
+```
+
+The script includes private and reserved ranges. Without sampling, `/16` produces 65,536 rows and `/24` produces
+16,777,216 rows. Sampling every fourth `/24` produces 4,194,304 rows. Rows are written incrementally, and existing files are
+never overwritten. Use the generated file with:
+
+```shell
+go run . A --client-subnet-input --input-file queries.csv --name-servers 1.1.1.1
+```
+
 ### Zone Files
 
 Zone files (from ICANN CZDS or similar) can be used as an input source for ZDNS with the `--zone-file` flag. This enables parsing zone files from either stdin (default) or a file with the `--input-file` flag.
