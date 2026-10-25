@@ -277,6 +277,39 @@ in memory. Repeated addresses avoid repeated IPv4 validation. Malformed input st
 JSON and record errors identify the input file and line. Output is created only after all inputs have been read
 successfully.
 
+### Enrich IPv4 addresses with airport locations
+
+Resolve the unique IP list back to CloudFront hostnames and map their airport codes to locations:
+
+```shell
+python3 -m pip install -r scripts/requirements.txt
+python3 scripts/enrich_ipv4.py unique_ipv4.txt -o enriched.jsonl
+```
+
+For example, `server-3-160-2-0.cmh68.r.cloudfront.net` supplies code `CMH`, producing:
+
+```json
+{"airport_code": "CMH", "airport_name": "John Glenn Columbus International Airport", "city": "Columbus", "country": "US", "ip": "3.160.2.0", "subdivision": "Ohio"}
+```
+
+The script splits each hostname on dots and takes the first three characters of the location label immediately
+before `.r.cloudfront.net`, so both `cmh68` and `CMH68-P1` yield `CMH`. It does not guess airport codes from
+arbitrary hostnames. Airport metadata
+comes from the pinned [airportsdata dataset](https://github.com/mborsetti/airportsdata); no airport API calls are
+made during processing. Country values are two-letter country codes and subdivisions are names such as `Ohio`.
+These are airport-based location inferences, not verified physical server locations: AWS says its edge codes
+[typically identify a nearby airport](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/real-time-logs.html).
+
+Reverse lookups use the system resolver with 32 concurrent workers by default. Use `--workers 64` to change
+concurrency. DNS retry and timeout behavior follows the system resolver configuration. The queue is bounded,
+input and output are streamed, duplicate input addresses are skipped, and output order follows lookup completion.
+
+Only fully mapped IPs enter the main file. Invalid IPs, failed reverse lookups, unrecognized hostnames, unknown or
+conflicting airport codes, and incomplete airport metadata go to `enriched.failures.jsonl`, with the IP and reason
+(plus PTR hostnames when available). Change this path with `--failures failures.jsonl`. A completed run exits
+successfully even when individual IPs fail; its summary reports both counts. Existing output files are never
+overwritten. An interrupted run may leave partial files.
+
 ### Zone Files
 
 Zone files (from ICANN CZDS or similar) can be used as an input source for ZDNS with the `--zone-file` flag. This enables parsing zone files from either stdin (default) or a file with the `--input-file` flag.
