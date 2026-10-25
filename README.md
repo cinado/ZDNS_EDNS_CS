@@ -254,6 +254,29 @@ are never overwritten. Use the generated file with:
 go run . A --client-subnet-input --input-file queries.csv --name-servers 1.1.1.1
 ```
 
+### Extract unique IPv4 answers
+
+Use the Python 3 script to collect unique IPv4 addresses from one or more ZDNS result files:
+
+```shell
+python3 scripts/extract_unique_ipv4.py scan.json -o unique_ipv4.txt
+python3 scripts/extract_unique_ipv4.py scan1.json scan2.json -o combined_ipv4.txt
+python3 scripts/extract_unique_ipv4.py results/*.json -o combined_ipv4.txt
+```
+
+Inputs use ZDNS's JSON Lines format: one result object per line, regardless of whether the extension is `.json`
+or `.jsonl`. For each module with status `NOERROR`, the script extracts records with `type: "A"` from
+`data.answers`. It includes A answers reached through CNAMEs, but ignores other record types, additional records,
+authorities, resolver addresses, and traces. Returned IPv4 addresses are included regardless of whether they are
+global; the subnet generator's global-address filter does not apply to scan results.
+
+The output contains one address per line, deduplicated across all input files, without sorting. The default output
+filename is `unique_ipv4.txt`; existing files are never overwritten. The script uses only the Python standard
+library, reads input incrementally with buffered I/O, and stores only unique addresses plus the current record
+in memory. Repeated addresses avoid repeated IPv4 validation. Malformed input stops processing with an error;
+JSON and record errors identify the input file and line. Output is created only after all inputs have been read
+successfully.
+
 ### Zone Files
 
 Zone files (from ICANN CZDS or similar) can be used as an input source for ZDNS with the `--zone-file` flag. This enables parsing zone files from either stdin (default) or a file with the `--input-file` flag.
