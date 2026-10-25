@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enrich IPv4 addresses using CloudFront PTR airport codes and airportsdata."""
+"""Enrich IPv4 addresses using CloudFront PTR IATA codes and airportsdata."""
 
 import argparse
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -25,7 +25,7 @@ def enrich_address(ip, airports):
     for name in hostnames:
         labels = name.rstrip(".").lower().split(".")
         if len(labels) >= 5 and labels[-3:] == ["r", "cloudfront", "net"]:
-            # server-<ip>.<airport><location>.r.cloudfront.net
+            # server-<ip>.<IATA code><location>.r.cloudfront.net
             codes.add(labels[-4][:3].upper())
     failure = {"ip": ip, "hostnames": hostnames}
     if not codes:
@@ -37,7 +37,7 @@ def enrich_address(ip, airports):
     airport = airports.get(code)
     if airport is None:
         return None, {**failure, "error": "unknown_airport_code", "airport_code": code}
-    fields = ("name", "city", "country", "subd")
+    fields = ("name", "city", "country")
     if any(not airport.get(field) for field in fields):
         return None, {**failure, "error": "incomplete_airport_data", "airport_code": code}
     return {
@@ -46,7 +46,7 @@ def enrich_address(ip, airports):
         "city": airport["city"],
         "country": airport["country"],
         "ip": ip,
-        "subdivision": airport["subd"],
+        "subdivision": airport.get("subd") or None,
     }, None
 
 
@@ -91,7 +91,7 @@ def positive_integer(value):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Enrich IPv4 addresses with locations inferred from CloudFront PTR airport codes.",
+        description="Enrich IPv4 addresses with locations inferred from CloudFront PTR IATA codes.",
         epilog="Uses the system DNS resolver. Results are written in completion order. "
         "Existing output files are never overwritten.",
     )

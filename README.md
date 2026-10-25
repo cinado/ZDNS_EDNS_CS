@@ -279,24 +279,25 @@ successfully.
 
 ### Enrich IPv4 addresses with airport locations
 
-Resolve the unique IP list back to CloudFront hostnames and map their airport codes to locations:
+Resolve the unique IP list back to CloudFront hostnames and map their three-letter IATA codes to locations:
 
 ```shell
 python3 -m pip install -r scripts/requirements.txt
 python3 scripts/enrich_ipv4.py unique_ipv4.txt -o enriched.jsonl
 ```
 
-For example, `server-3-160-2-0.cmh68.r.cloudfront.net` supplies code `CMH`, producing:
+For example, `server-3-160-2-0.cmh68.r.cloudfront.net` supplies IATA code `CMH`, producing:
 
 ```json
 {"airport_code": "CMH", "airport_name": "John Glenn Columbus International Airport", "city": "Columbus", "country": "US", "ip": "3.160.2.0", "subdivision": "Ohio"}
 ```
 
 The script splits each hostname on dots and takes the first three characters of the location label immediately
-before `.r.cloudfront.net`, so both `cmh68` and `CMH68-P1` yield `CMH`. It does not guess airport codes from
-arbitrary hostnames. Airport metadata
+before `.r.cloudfront.net`, so both `cmh68` and `CMH68-P1` yield IATA code `CMH`. The `airport_code` JSON field
+contains this IATA code. The script does not guess IATA codes from arbitrary hostnames. Airport metadata
 comes from the pinned [airportsdata dataset](https://github.com/mborsetti/airportsdata); no airport API calls are
 made during processing. Country values are two-letter country codes and subdivisions are names such as `Ohio`.
+If the dataset has no subdivision, the record is retained with `"subdivision": null`.
 These are airport-based location inferences, not verified physical server locations: AWS says its edge codes
 [typically identify a nearby airport](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/real-time-logs.html).
 
@@ -304,8 +305,9 @@ Reverse lookups use the system resolver with 32 concurrent workers by default. U
 concurrency. DNS retry and timeout behavior follows the system resolver configuration. The queue is bounded,
 input and output are streamed, duplicate input addresses are skipped, and output order follows lookup completion.
 
-Only fully mapped IPs enter the main file. Invalid IPs, failed reverse lookups, unrecognized hostnames, unknown or
-conflicting airport codes, and incomplete airport metadata go to `enriched.failures.jsonl`, with the IP and reason
+IPs with a recognized IATA code, airport name, city, and country enter the main file. Invalid IPs, failed reverse
+lookups, unrecognized hostnames, unknown or conflicting IATA codes, and missing required airport metadata go to
+`enriched.failures.jsonl`, with the IP and reason
 (plus PTR hostnames when available). Change this path with `--failures failures.jsonl`. A completed run exits
 successfully even when individual IPs fail; its summary reports both counts. Existing output files are never
 overwritten. An interrupted run may leave partial files.
