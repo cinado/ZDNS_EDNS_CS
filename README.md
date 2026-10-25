@@ -316,6 +316,32 @@ lookups, unrecognized hostnames, unknown or conflicting IATA codes, and missing 
 successfully even when individual IPs fail; its summary reports both counts. Existing output files are never
 overwritten. An interrupted run may leave partial files.
 
+### Check Viber resource cache hits
+
+The resource-cache script consumes the enriched JSONL file directly, with no filename pattern required:
+
+```shell
+python3 scripts/viber_resource_cache.py YOUR_RESOURCE_ID --input enriched.jsonl
+```
+
+Pass the bare resource ID without the `0-03-05-` prefix. `--input` defaults to `enriched.jsonl` in the current
+directory. The script requires Python 3.10+ and a `zgrab2` executable on `PATH` with the HTTP module; it uses
+only the Python standard library. It sends HTTPS HEAD requests to the listed edge IPs using
+`media.cdn.viber.com` as the hostname and records responses whose `X-Cache` header contains `Hit from cloudfront`.
+
+To choose a report filename and worker count:
+
+```shell
+python3 scripts/viber_resource_cache.py YOUR_RESOURCE_ID \
+  --input enriched.jsonl --output cache_hits.json --senders 100
+```
+
+The default worker count is 10,000, inherited from the original script. By default, the report is saved beside
+the input as `resource_cache_<resource-id>_<UTC timestamp>.json`. It contains the resource ID, input path, scan
+timestamp, number of unique IPs checked, hit count, and a `locations` array with all six enrichment fields.
+Null airport names or subdivisions are preserved. Duplicate IPs are scanned once. Existing reports are not
+overwritten, and failure-sidecar records are rejected as input. The report is a single JSON document, not JSONL.
+
 ### Zone Files
 
 Zone files (from ICANN CZDS or similar) can be used as an input source for ZDNS with the `--zone-file` flag. This enables parsing zone files from either stdin (default) or a file with the `--input-file` flag.
