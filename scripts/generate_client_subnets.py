@@ -38,16 +38,19 @@ def main():
     total = 1 << prefix
     count = (total + sample_every - 1) // sample_every
     address_step = (1 << (32 - prefix)) * sample_every
-    print(f"Generating {count:,} of {total:,} IPv4 /{prefix} prefixes for {domain} (interval {sample_every}).")
+    print(f"Checking {count:,} of {total:,} IPv4 /{prefix} prefixes for {domain} (interval {sample_every}); keeping global unicast network addresses only.")
     output_path = input("Output CSV file [queries.csv]: ").strip() or "queries.csv"
+    written = 0
     try:
         with open(output_path, "x", encoding="utf-8", newline="") as output:
             writer = csv.writer(output, lineterminator="\n")
-            for written, address in enumerate(range(0, 1 << 32, address_step), start=1):
-                subnet = f"{ipaddress.IPv4Address(address)}/{prefix}"
-                writer.writerow((domain, subnet))
-                if written % 100000 == 0:
-                    print(f"Written {written:,} / {count:,} rows...", file=sys.stderr)
+            for checked, address in enumerate(range(0, 1 << 32, address_step), start=1):
+                ip = ipaddress.IPv4Address(address)
+                if ip.is_global and not ip.is_multicast:
+                    writer.writerow((domain, f"{ip}/{prefix}"))
+                    written += 1
+                if checked % 100000 == 0:
+                    print(f"Checked {checked:,} / {count:,} prefixes; wrote {written:,} rows...", file=sys.stderr)
     except FileExistsError:
         print(f"File already exists: {output_path}. Choose a new filename on the next run.", file=sys.stderr)
         return 1
@@ -55,7 +58,7 @@ def main():
         print(f"Could not write {output_path}: {error}. Any partial output is incomplete.", file=sys.stderr)
         return 1
 
-    print(f"Wrote {count:,} rows to {output_path}.")
+    print(f"Wrote {written:,} rows to {output_path}.")
     return 0
 
 

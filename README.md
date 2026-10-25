@@ -233,20 +233,22 @@ python3 scripts/generate_client_subnets.py
 ```
 
 It asks for a domain, an IPv4 subnet prefix such as `/24` or `24`, a sampling interval (default: `1`, all
-prefixes), and an output filename (default: `queries.csv`). It covers the entire IPv4 address space.
-Sampling starts with the first prefix and selects every Nth prefix, skipping the intervening prefixes directly.
+prefixes), and an output filename (default: `queries.csv`). It considers the entire IPv4 address space but only
+includes prefixes whose network address is global unicast (`ipaddress.IPv4Address.is_global` and not multicast).
+Sampling starts with the first prefix and selects every Nth prefix, then non-global addresses are filtered out.
 For example, `example.com`, prefix `/24`, and sampling interval `4` produce a file starting with:
 
 ```text
-example.com,0.0.0.0/24
-example.com,0.0.4.0/24
-example.com,0.0.8.0/24
-example.com,0.0.12.0/24
+example.com,1.0.0.0/24
+example.com,1.0.4.0/24
+example.com,1.0.8.0/24
+example.com,1.0.12.0/24
 ```
 
-The script includes private and reserved ranges. Without sampling, `/16` produces 65,536 rows and `/24` produces
-16,777,216 rows. Sampling every fourth `/24` produces 4,194,304 rows. Rows are written incrementally, and existing files are
-never overwritten. Use the generated file with:
+Private, loopback, link-local, shared, documentation, reserved, and multicast network addresses are excluded.
+The filter checks the network address, not every address inside a prefix; broad prefixes can contain non-global
+subranges. The final row count reflects the filtered output. Rows are written incrementally, and existing files
+are never overwritten. Use the generated file with:
 
 ```shell
 go run . A --client-subnet-input --input-file queries.csv --name-servers 1.1.1.1
