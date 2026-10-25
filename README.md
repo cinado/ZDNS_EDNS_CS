@@ -298,6 +298,10 @@ contains this IATA code. The script does not guess IATA codes from arbitrary hos
 comes from the pinned [airportsdata dataset](https://github.com/mborsetti/airportsdata); no airport API calls are
 made during processing. Country values are two-letter country codes and subdivisions are names such as `Ohio`.
 If the dataset has no subdivision, the record is retained with `"subdivision": null`.
+IATA metropolitan codes such as `YTO` are resolved using the dataset's Multi Airport Cities mapping when no
+individual airport matches. The original code is preserved, `airport_name` is `null`, and the city and country
+come from the city entry. A subdivision is included only when all member airports have the same subdivision;
+otherwise it is `null`. For example, `YTO` yields Toronto, `CA`, and Ontario without selecting a specific airport.
 These are airport-based location inferences, not verified physical server locations: AWS says its edge codes
 [typically identify a nearby airport](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/real-time-logs.html).
 
@@ -305,7 +309,7 @@ Reverse lookups use the system resolver with 32 concurrent workers by default. U
 concurrency. DNS retry and timeout behavior follows the system resolver configuration. The queue is bounded,
 input and output are streamed, duplicate input addresses are skipped, and output order follows lookup completion.
 
-IPs with a recognized IATA code, airport name, city, and country enter the main file. Invalid IPs, failed reverse
+IPs with a recognized airport or metropolitan IATA code and the required metadata enter the main file. Invalid IPs, failed reverse
 lookups, unrecognized hostnames, unknown or conflicting IATA codes, and missing required airport metadata go to
 `enriched.failures.jsonl`, with the IP and reason
 (plus PTR hostnames when available). Change this path with `--failures failures.jsonl`. A completed run exits

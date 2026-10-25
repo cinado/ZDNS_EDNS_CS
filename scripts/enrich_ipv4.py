@@ -9,7 +9,7 @@ import socket
 import sys
 
 
-def enrich_address(ip, airports):
+def enrich_address(ip, airports, cities=None):
     try:
         socket.inet_pton(socket.AF_INET, ip)
     except (OSError, ValueError):
@@ -36,7 +36,21 @@ def enrich_address(ip, airports):
     code = next(iter(codes))
     airport = airports.get(code)
     if airport is None:
-        return None, {**failure, "error": "unknown_airport_code", "airport_code": code}
+        city = (cities or {}).get(code)
+        if city is None:
+            return None, {**failure, "error": "unknown_airport_code", "airport_code": code}
+        if not city.get("name") or not city.get("country"):
+            return None, {**failure, "error": "incomplete_airport_data", "airport_code": code}
+        # A metropolitan code identifies a city, not one of its airports.
+        subdivisions = {member.get("subd") or None for member in city["airports"].values()}
+        return {
+            "airport_code": code,
+            "airport_name": None,
+            "city": city["name"],
+            "country": city["country"],
+            "ip": ip,
+            "subdivision": next(iter(subdivisions)) if len(subdivisions) == 1 else None,
+        }, None
     fields = ("name", "city", "country")
     if any(not airport.get(field) for field in fields):
         return None, {**failure, "error": "incomplete_airport_data", "airport_code": code}
@@ -59,7 +73,7 @@ def unique_addresses(source):
             yield ip
 
 
-def enrich_addresses(addresses, airports, workers):
+def enrich_addresses(addresses, airports, workers, cities=None):
     """Keep a bounded queue so a large input cannot allocate millions of futures."""
     iterator = iter(addresses)
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -72,7 +86,7 @@ def enrich_addresses(addresses, airports, workers):
                 except StopIteration:
                     exhausted = True
                     break
-                pending.add(executor.submit(enrich_address, ip, airports))
+                pending.add(executor.submit(enrich_address, ip, airports, cities))
             if pending:
                 completed, pending = wait(pending, return_when=FIRST_COMPLETED)
                 for future in completed:
@@ -122,12 +136,13 @@ def main():
     succeeded = failed = 0
     try:
         airports = airportsdata.load("IATA")
+        cities = airportsdata.load_iata_macs()
         with (
             args.input.open("r", encoding="utf-8") as source,
             args.output.open("x", encoding="utf-8") as output,
             failures_path.open("x", encoding="utf-8") as failures,
         ):
-            for record, failure in enrich_addresses(unique_addresses(source), airports, args.workers):
+            for record, failure in enrich_addresses(unique_addresses(source), airports, args.workers, cities):
                 if record is not None:
                     output.write(json.dumps(record, ensure_ascii=False) + "\n")
                     succeeded += 1
